@@ -60,7 +60,7 @@ install: all
 		conf_file="/etc/tmpfiles.d/$(MODNAME).conf"; \
 		[ -f $$conf_file ] || sudo touch $$conf_file; \
 		if echo "$$model_path" | grep -q "nitro_sense"; then \
-			supported_fields="fan_speed battery_limiter battery_calibration usb_charging"; \
+			supported_fields="fan_speed battery_limiter battery_calibration usb_charging backlight_timeout"; \
 		else \
 			supported_fields="backlight_timeout battery_calibration battery_limiter boot_animation_sound fan_speed lcd_override usb_charging"; \
 		fi; \

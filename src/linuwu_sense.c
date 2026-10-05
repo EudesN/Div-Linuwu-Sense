@@ -48,6 +48,7 @@
 #include <linux/bitfield.h>
 #include <linux/bitmap.h>
 #include <linux/delay.h>
+#include <linux/power_supply.h>
 
 #include <linux/version.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,12,0)
@@ -1806,6 +1807,28 @@ WMI_gaming_execute_u64(u32 method_id, u64 in, u64 *out)
     return status;
 }
 
+/*
+ * Query whether the laptop is running on AC power.
+ *
+ * Some models (e.g. Nitro ANV15-51) report "on battery" through the gaming
+ * WMI battery status command even while the AC adapter is online, which made
+ * the driver reject AC-only thermal profiles. Prefer the kernel's power-supply
+ * state and only fall back to the WMI command when it cannot be determined.
+ */
+static acpi_status acer_get_on_ac(u64 *on_AC)
+{
+    int supplied = power_supply_is_system_supplied();
+
+    if (supplied >= 0)
+    {
+        *on_AC = supplied > 0;
+        return AE_OK;
+    }
+
+    return WMI_gaming_execute_u64(ACER_WMID_GET_GAMING_SYS_INFO_METHODID,
+                                  ACER_WMID_CMD_GET_PREDATOR_V4_BAT_STATUS, on_AC);
+}
+
 static int WMI_gaming_execute_u32_u64(u32 method_id, u32 in, u64 *out)
 {
     struct acpi_buffer result = {ACPI_ALLOCATE_BUFFER, NULL};
@@ -2321,9 +2344,7 @@ acer_predator_v4_platform_profile_set(struct device *dev,
     u64 on_AC;
 
     /* Check Power Source */
-    status = WMI_gaming_execute_u64(
-        ACER_WMID_GET_GAMING_SYS_INFO_METHODID,
-        ACER_WMID_CMD_GET_PREDATOR_V4_BAT_STATUS, &on_AC);
+    status = acer_get_on_ac(&on_AC);
 
     if (ACPI_FAILURE(status))
         return -EIO;
@@ -2568,9 +2589,7 @@ static int acer_thermal_profile_change(void)
         if (err)
             return err;
         /* Check power source */
-        status = WMI_gaming_execute_u64(
-            ACER_WMID_GET_GAMING_SYS_INFO_METHODID,
-            ACER_WMID_CMD_GET_PREDATOR_V4_BAT_STATUS, &on_AC);
+        status = acer_get_on_ac(&on_AC);
 
         if (ACPI_FAILURE(status))
             return -EIO;
@@ -3602,7 +3621,9 @@ static ssize_t predator_fan_speed_store(struct device *dev,
     char *token;
     char *input_ptr = input;
     size_t len = min(count, sizeof(input) - 1);
-    strncpy(input, buf, len);
+    if (!len)
+        return -EINVAL;
+    memcpy(input, buf, len);
 
     if (input[len - 1] == '\n')
     {
@@ -3752,9 +3773,7 @@ static int acer_predator_state_load(void)
     }
 
     /* Always proceed to restore state based on power source */
-    status = WMI_gaming_execute_u64(
-        ACER_WMID_GET_GAMING_SYS_INFO_METHODID,
-        ACER_WMID_CMD_GET_PREDATOR_V4_BAT_STATUS, &on_AC);
+    status = acer_get_on_ac(&on_AC);
 
     if (ACPI_FAILURE(status))
     {
@@ -3781,9 +3800,7 @@ static int acer_predator_state_save(void)
     struct file *file;
     ssize_t len;
 
-    status = WMI_gaming_execute_u64(
-        ACER_WMID_GET_GAMING_SYS_INFO_METHODID,
-        ACER_WMID_CMD_GET_PREDATOR_V4_BAT_STATUS, &on_AC);
+    status = acer_get_on_ac(&on_AC);
     if (ACPI_FAILURE(status))
         return -1;
 
@@ -4104,7 +4121,9 @@ static ssize_t four_zoned_rgb_kb_store(struct device *dev, struct device_attribu
     char *input_ptr = input_buf;
     size_t len = min(count, sizeof(input_buf) - 1);
 
-    strncpy(input_buf, buf, len);
+    if (!len)
+        return -EINVAL;
+    memcpy(input_buf, buf, len);
 
     if (input_buf[len - 1] == '\n')
     {
@@ -4297,7 +4316,9 @@ static ssize_t per_zoned_rgb_kb_store(struct device *dev, struct device_attribut
     struct per_zone_color colors;
     char *input_ptr = str_buf;
     len = min(count, sizeof(str_buf) - 1);
-    strncpy(str_buf, buf, len);
+    if (!len)
+        return -EINVAL;
+    memcpy(str_buf, buf, len);
     if (str_buf[len - 1] == '\n')
     {
         str_buf[len - 1] = '\0';

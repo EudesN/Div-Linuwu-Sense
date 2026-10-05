@@ -26,6 +26,23 @@ To Uninstall:
 ```bash
 make uninstall
 ```
+
+### DKMS install (survives kernel updates)
+`make install` copies the module into the current kernel's tree only, so it stops loading after a kernel update.
+On rolling distros such as Arch, install it through DKMS instead:
+```bash
+sudo pacman -S dkms linux-headers
+sudo rmmod acer_wmi 2>/dev/null; echo "blacklist acer_wmi" | sudo tee /etc/modprobe.d/blacklist-acer_wmi.conf
+sudo cp -r . /usr/src/linuwu-sense-25.701
+sudo dkms install linuwu-sense/25.701
+sudo modprobe linuwu_sense
+```
+If an older `linuwu-sense` DKMS package is already installed, remove it first, otherwise it keeps taking priority
+(modules under `updates/dkms` win over `make install`):
+```bash
+dkms status
+sudo dkms remove linuwu-sense/<old-version> --all
+```
 > **⚠️ Warning!**
 > ## Use at your own risk! This driver is independently developed through reverse engineering the official PredatorSense app, without any involvement from Acer. It interacts with low-level WMI methods, which may not be tested across all models.
 
