@@ -1,0 +1,5 @@
+# Installed by linuwu_sense (make install).
+# Let members of the "linuwu_sense" group write the driver's sysfs controls.
+# The attribute groups are created while the driver probes, so act on "bind"
+# (emitted after probe finished) instead of "add".
+ACTION=="bind", SUBSYSTEM=="platform", KERNEL=="acer-wmi", RUN+="/bin/sh -c 'cd /sys%p || exit 0; for f in predator_sense/* nitro_sense/* four_zoned_kb/*; do [ -f $$f ] || continue; case $$f in */version) continue;; esac; chgrp linuwu_sense $$f && chmod g+w $$f; done; exit 0'"

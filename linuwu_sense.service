@@ -1,10 +1,15 @@
 [Unit]
-Description=Unload linuwu_sense at shutdown
+Description=Unload linuwu_sense at shutdown (saves thermal/keyboard state)
+# Stopped (and thus the module unloaded, which writes /etc/predator_state and
+# /etc/four_zone_kb_state) early during shutdown while /etc is still writable.
+After=systemd-modules-load.service local-fs.target
+RequiresMountsFor=/etc
 
 [Service]
 Type=oneshot
 RemainAfterExit=true
-ExecStop=/sbin/rmmod linuwu_sense 
+ExecStop=-/sbin/rmmod linuwu_sense
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target

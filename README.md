@@ -22,6 +22,12 @@ make install
 ```
 The make command will remove the current acer_wmi module and load the patched version.
 
+`make install` also creates the `linuwu_sense` group, adds your user to it and installs the udev rule
+`/etc/udev/rules.d/99-linuwu-sense.rules`, which gives that group write access to the files in
+`nitro_sense/`, `predator_sense/` and `four_zoned_kb/` whenever the driver binds (log out and back in
+after the first install). It replaces the old `/etc/tmpfiles.d/linuwu_sense.conf` entries, which ran
+at boot before the module was loaded and failed; `make install` removes that file.
+
 To Uninstall:
 ```bash
 make uninstall
@@ -33,10 +39,13 @@ On rolling distros such as Arch, install it through DKMS instead:
 ```bash
 sudo pacman -S dkms linux-headers
 sudo rmmod acer_wmi 2>/dev/null; echo "blacklist acer_wmi" | sudo tee /etc/modprobe.d/blacklist-acer_wmi.conf
-sudo cp -r . /usr/src/linuwu-sense-25.701
-sudo dkms install linuwu-sense/25.701
+make dkms-install        # copies the sources to /usr/src/linuwu-sense-<DRIVER_VERSION> and runs dkms install
 sudo modprobe linuwu_sense
 ```
+The DKMS package version is `DRIVER_VERSION` from `src/linuwu_sense.c` (currently 25.701); `PACKAGE_VERSION`
+in `dkms.conf` must match it, `make dkms-install` refuses to run otherwise. With a DKMS install, copy
+`99-linuwu-sense.rules` to `/etc/udev/rules.d/` and create the `linuwu_sense` group yourself if you
+want non-root access to the sysfs files.
 If an older `linuwu-sense` DKMS package is already installed, remove it first, otherwise it keeps taking priority
 (modules under `updates/dkms` win over `make install`):
 ```bash
@@ -72,6 +81,11 @@ To probe the current thermal profile:
 To check the supported thermal profile:
 
 `cat /sys/firmware/acpi/platform_profile_choices`
+
+Only the profiles the firmware reports as supported are listed, even when profiles are forced with
+`nitro_v4=1`, `predator_v4=1` or `enable_all=1` (the full list is only used when the firmware bitmap
+can't be read or looks bogus). For example the Nitro ANV15-51 firmware rejects Turbo, so there
+`performance` (Turbo) is not offered and the mode key cycles Quiet → Balanced → Balanced-performance.
 
 To switch the platform profile:
 
@@ -159,6 +173,11 @@ Controls the CPU and GPU fan speeds.
 Example (set CPU to 50 and GPU to 70):
 
 `echo 50,70 | sudo tee /sys/module/linuwu_sense/drivers/platform:acer-wmi/acer-wmi/predator_sense/fan_speed`
+
+Input is validated strictly: exactly two plain decimal values `cpu,gpu` in 0..100 (no signs, spaces
+around the comma or extra fields), otherwise the write fails with `Invalid argument`. The other files
+likewise only accept their documented values (e.g. `0`/`1`), and `per_zone_mode` needs exactly four
+6-digit hex colours plus a brightness.
 
 ---
 
