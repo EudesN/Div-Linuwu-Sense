@@ -4231,6 +4231,36 @@ static ssize_t predator_lcd_override_store(struct device *dev, struct device_att
  * BACKLIGHT 30 SEC TIMEOUT
  */
 
+/*
+ * Nitro firmware (tested on AN16-41, upstream Linuwu-Sense PR #157): bit 19
+ * of the value set/read = timeout active, top byte = delay in seconds.
+ * 0x88402 means "timeout active with 0 s delay" (light goes off 2-3 s after
+ * the last key), always-on is 0x8402.
+ */
+#define ACER_KB_BACKLIGHT_TIMEOUT_ACTIVE BIT_ULL(19)
+
+static bool acer_backlight_timeout_nitro(void)
+{
+    return quirks->nitro_sense || quirks->nitro_v4;
+}
+
+static int acer_backlight_timeout_from_result(bool nitro, u64 result)
+{
+    if (nitro)
+        return (result & ACER_KB_BACKLIGHT_TIMEOUT_ACTIVE) ? 1 : 0;
+
+    return result == 0x1E0000080000 ? 1 : result == 0x80000 ? 0
+                                                            : -1; //-1 means unknown value
+}
+
+static u64 acer_backlight_timeout_set_value(bool nitro, int val)
+{
+    if (val == 1)
+        return 0x1E0000088402;
+
+    return nitro ? 0x8402 : 0x88402;
+}
+
 static ssize_t predator_backlight_timeout_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     acpi_status status;
@@ -4242,8 +4272,7 @@ static ssize_t predator_backlight_timeout_show(struct device *dev, struct device
         return -ENODEV;
     }
     pr_info("backlight_timeout get status: %llu\n", result);
-    return sysfs_emit(buf, "%d\n", result == 0x1E0000080000 ? 1 : result == 0x80000 ? 0
-                                                                                 : -1);
+    return sysfs_emit(buf, "%d\n", acer_backlight_timeout_from_result(acer_backlight_timeout_nitro(), result));
 }
 
 static ssize_t predator_backlight_timeout_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
@@ -4253,8 +4282,10 @@ static ssize_t predator_backlight_timeout_store(struct device *dev, struct devic
     int val;
     if (acer_parse_dec(buf, 0, 1, &val))
         return -EINVAL;
-    pr_info("bascklight_timeout set value: %d\n", val);
-    status = WMI_apgeaction_execute_u64(ACER_WMID_SET_FUNCTION, val == 1 ? 0x1E0000088402 : 0x88402, &result);
+    pr_info("backlight_timeout set value: %d\n", val);
+    status = WMI_apgeaction_execute_u64(ACER_WMID_SET_FUNCTION,
+                                        acer_backlight_timeout_set_value(acer_backlight_timeout_nitro(), val),
+                                        &result);
     if (ACPI_FAILURE(status))
     {
         pr_err("Error setting backlight_timeout status: %s\n", acpi_format_exception(status));
@@ -4992,16 +5023,29 @@ static void acer_platform_remove(struct platform_device *device)
 {
     bool save_predator_state = predator_sense_group_created || nitro_sense_v4_group_created;
     bool save_kb_state = four_zone_kb_group_created;
+    /* every sense group exposes fan_speed */
+    bool fan_control = save_predator_state || nitro_sense_group_created;
 
     /* No more sysfs writes once the groups are gone */
     acer_remove_sysfs_groups(device);
 
     flush_delayed_work(&acer_ac_event_work);
 
-    if (save_predator_state)
+    if (fan_control)
     {
         mutex_lock(&acer_fan_lock);
-        acer_predator_state_save();
+        if (save_predator_state)
+            acer_predator_state_save();
+        /*
+         * Hand the fans back to firmware auto control (after saving the
+         * state, which records the current speeds) so unloading the module,
+         * e.g. at shutdown, never leaves them at a low manual speed.
+         */
+        if (cpu_fan_speed != 0 || gpu_fan_speed != 0)
+        {
+            if (ACPI_FAILURE(acer_set_fan_speed(0, 0)))
+                pr_warn("Failed to restore automatic fan control\n");
+        }
         mutex_unlock(&acer_fan_lock);
     }
     if (save_kb_state)
